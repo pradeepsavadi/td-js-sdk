@@ -20,16 +20,43 @@
       c[n].prototype[method] = action(method)
     }
 
-    var s = document.createElement('script')
-    s.type = 'text/javascript'
-    s.async = !0
-    s.src = (
-      document.location.protocol === 'https:'
-        ? 'https:'
-        : 'http:'
-    ) + '@URL'
+    var domain, doc, where, iframeStyle
+    var iframe = document.createElement('iframe')
 
-    var t = document.getElementsByTagName('script')[0]
-    t.parentNode.insertBefore(s, t)
+    iframe.src = 'javascript:false'
+    iframe.title = ''
+    iframe.role = 'presentation'
+    iframe.loading = 'eager'
+
+    iframeStyle = (iframe.frameElement || iframe).style
+    iframeStyle.width = 0
+    iframeStyle.height = 0
+    iframeStyle.border = 0
+    iframeStyle.display = 'none'
+
+    where = document.currentScript || document.getElementsByTagName('script')[0]
+    where.parentNode.insertBefore(iframe, where)
+
+    try {
+      doc = iframe.contentWindow.document
+    } catch (e) {
+      domain = document.domain
+      iframe.src = 'javascript:var d=document.open();d.domain="' + domain + '";void(0);'
+      doc = iframe.contentWindow.document
+    }
+    doc.open()._loadScript = function () {
+      var js = this.createElement('script')
+      if (domain) this.domain = domain
+      js.id = 'td-js-iframe'
+
+      js.src = (
+        document.location.protocol === 'https:'
+          ? 'https:'
+          : 'http:'
+      ) + '@URL'
+      this.body.appendChild(js)
+    }
+    doc.write('<body onload="document._loadScript();">')
+    doc.close()
   }
 })('@GLOBAL', this)

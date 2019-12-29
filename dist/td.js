@@ -18,9 +18,13 @@
 })([ function(module, exports, __webpack_require__) {
     var Treasure = __webpack_require__(1);
     var window = __webpack_require__(64);
-    var GLOBAL = __webpack_require__(73).GLOBAL;
-    __webpack_require__(83)(Treasure, GLOBAL);
-    window[GLOBAL] = Treasure;
+    var GLOBAL_NAME = __webpack_require__(73).GLOBAL;
+    var TD_GLOBAL = window;
+    if (window.parent !== window && document.getElementById("td-js-iframe")) {
+        TD_GLOBAL = window.parent;
+    }
+    __webpack_require__(83)(Treasure, TD_GLOBAL, GLOBAL_NAME);
+    TD_GLOBAL[GLOBAL_NAME] = Treasure;
 }, function(module, exports, __webpack_require__) {
     var record = __webpack_require__(2);
     var _ = __webpack_require__(9);
@@ -41,6 +45,12 @@
             if (Treasure.Plugins.hasOwnProperty(plugin)) {
                 Treasure.Plugins[plugin].configure.call(this, options);
             }
+        }
+        if (window.addEventListener) {
+            var that = this;
+            window.addEventListener("pagehide", function() {
+                that._windowBeingUnloaded = true;
+            });
         }
     };
     Treasure.version = Treasure.prototype.version = version;
@@ -143,13 +153,25 @@
         if (request.time) {
             params.push("time=" + encodeURIComponent(request.time));
         }
-        var jsonpUrl = request.url + "?" + params.join("&");
-        jsonp(jsonpUrl, {
-            "prefix": "TreasureJSONPCallback",
-            "timeout": this.client.jsonpTimeout
-        }, function(err, res) {
-            return err ? error(err) : success(res);
-        });
+        var url = request.url + "?" + params.join("&");
+        var isClickedLink = request.record.tag === "a" && !!request.record.href;
+        if (window.fetch && (this._windowBeingUnloaded || isClickedLink)) {
+            window.fetch(url, {
+                "method": "POST",
+                "keepalive": true
+            }).then(function(response) {
+                success(response);
+            })["catch"](function(err) {
+                error(err);
+            });
+        } else {
+            jsonp(url, {
+                "prefix": "TreasureJSONPCallback",
+                "timeout": this.client.jsonpTimeout
+            }, function(err, res) {
+                return err ? error(err) : success(res);
+            });
+        }
     };
     exports.applyProperties = function applyProperties(table, payload) {
         return _.assign({}, this.get("$global"), this.get(table), payload);
@@ -2743,7 +2765,6 @@
     };
 }, function(module, exports, __webpack_require__) {
     var _ = __webpack_require__(9);
-    var window = __webpack_require__(64);
     function applyToClient(client, method) {
         var _method = "_" + method;
         if (client[_method]) {
@@ -2754,10 +2775,10 @@
             delete client[_method];
         }
     }
-    var TREASURE_KEYS = [ "init", "set", "blockEvents", "fetchServerCookie", "unblockEvents", "setSignedMode", "setAnonymousMode", "resetUUID", "addRecord", "fetchGlobalID", "trackPageview", "trackEvent", "trackClicks", "fetchUserSegments", "ready" ];
-    module.exports = function loadClients(Treasure, name) {
-        if (_.isObject(window[name])) {
-            var snippet = window[name];
+    var TREASURE_KEYS = [ "init", "set", "blockEvents", "unblockEvents", "setSignedMode", "setAnonymousMode", "resetUUID", "addRecord", "fetchGlobalID", "trackPageview", "trackEvent", "trackClicks", "fetchUserSegments", "fetchServerCookie", "ready" ];
+    module.exports = function loadClients(Treasure, global, name) {
+        if (_.isObject(global[name])) {
+            var snippet = global[name];
             var clients = snippet.clients;
             _.forIn(Treasure.prototype, function(value, key) {
                 snippet.prototype[key] = value;
