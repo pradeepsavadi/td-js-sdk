@@ -42,6 +42,12 @@
                 Treasure.Plugins[plugin].configure.call(this, options);
             }
         }
+        if (window.addEventListener) {
+            var that = this;
+            window.addEventListener("pagehide", function() {
+                that._windowBeingUnloaded = true;
+            });
+        }
     };
     Treasure.version = Treasure.prototype.version = version;
     Treasure.prototype.log = function() {
@@ -86,6 +92,7 @@
 }, function(module, exports, __webpack_require__) {
     var invariant = __webpack_require__(3).invariant;
     var noop = __webpack_require__(3).noop;
+    var fetchWithTimeout = __webpack_require__(3).fetchWithTimeout;
     var jsonp = __webpack_require__(4);
     var _ = __webpack_require__(9);
     var global = __webpack_require__(64);
@@ -143,13 +150,35 @@
         if (request.time) {
             params.push("time=" + encodeURIComponent(request.time));
         }
-        var jsonpUrl = request.url + "?" + params.join("&");
-        jsonp(jsonpUrl, {
-            "prefix": "TreasureJSONPCallback",
-            "timeout": this.client.jsonpTimeout
-        }, function(err, res) {
-            return err ? error(err) : success(res);
-        });
+        var url = request.url + "?" + params.join("&");
+        var isClickedLink = request.record.tag === "a" && !!request.record.href;
+        if (this.client.debugMode) {
+            var prop;
+            console.log("---DEBUG---");
+            for (prop in request.record) {
+                if (request.record.hasOwnProperty(prop)) {
+                    console.log(prop, ":", request.record[prop]);
+                }
+            }
+            console.log("-----------");
+        }
+        if (window.fetch && (this._windowBeingUnloaded || isClickedLink)) {
+            fetchWithTimeout(url, this.client.jsonpTimeout, {
+                "method": "POST",
+                "keepalive": true
+            }).then(function(response) {
+                success(response);
+            })["catch"](function(err) {
+                error(err);
+            });
+        } else {
+            jsonp(url, {
+                "prefix": "TreasureJSONPCallback",
+                "timeout": this.client.jsonpTimeout
+            }, function(err, res) {
+                return err ? error(err) : success(res);
+            });
+        }
     };
     exports.applyProperties = function applyProperties(table, payload) {
         return _.assign({}, this.get("$global"), this.get(table), payload);
@@ -191,10 +220,35 @@
         }
     }
     function noop() {}
+    function _timeout(milliseconds, promise, timeoutMessage) {
+        var timerPromise = new Promise(function(resolve, reject) {
+            setTimeout(function() {
+                reject(new Error(timeoutMessage || "Operation Timeout"));
+            }, milliseconds);
+        });
+        return Promise.race([ timerPromise, promise ]);
+    }
+    function fetchWithTimeout(url, milliseconds, options) {
+        if (window.AbortController) {
+            var controller = new window.AbortController();
+            var promise = window.fetch(url, Object.assign({}, options, {
+                "signal": controller.signal
+            }));
+            var timeoutId = setTimeout(function() {
+                controller.abort();
+            }, milliseconds);
+            return promise["finally"](function() {
+                clearTimeout(timeoutId);
+            });
+        } else {
+            return _timeout(milliseconds, window.fetch(url, options), "Request Timeout");
+        }
+    }
     module.exports = {
         "disposable": disposable,
         "invariant": invariant,
-        "noop": noop
+        "noop": noop,
+        "fetchWithTimeout": fetchWithTimeout
     };
 }, function(module, exports, __webpack_require__) {
     var debug = __webpack_require__(5)("jsonp");
@@ -2180,7 +2234,8 @@
         "sscServer": function(cookieDomain) {
             return [ "ssc", cookieDomain ].join(".");
         },
-        "storeConsentByLocalStorage": false
+        "storeConsentByLocalStorage": false,
+        "debugMode": false
     };
     exports.configure = function configure(options) {
         this.client = _.assign({
@@ -2754,7 +2809,7 @@
             delete client[_method];
         }
     }
-    var TREASURE_KEYS = [ "init", "set", "blockEvents", "fetchServerCookie", "unblockEvents", "setSignedMode", "setAnonymousMode", "resetUUID", "addRecord", "fetchGlobalID", "trackPageview", "trackEvent", "trackClicks", "fetchUserSegments", "ready" ];
+    var TREASURE_KEYS = [ "init", "set", "blockEvents", "unblockEvents", "setSignedMode", "setAnonymousMode", "resetUUID", "addRecord", "fetchGlobalID", "trackPageview", "trackEvent", "trackClicks", "fetchUserSegments", "fetchServerCookie", "ready" ];
     module.exports = function loadClients(Treasure, name) {
         if (_.isObject(window[name])) {
             var snippet = window[name];
